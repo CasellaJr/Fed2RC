@@ -1,0 +1,6 @@
+scikit-learn
+matplotlib
+pandas
+numpy
+sktime
+wandb
