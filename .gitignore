@@ -131,7 +131,6 @@ dmypy.json
 
 # Data
 *.npy
-*.csv
 *.h5
 *.pt
 *.pkl
