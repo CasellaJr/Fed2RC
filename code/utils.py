@@ -145,7 +145,7 @@ def split_data_continuous(features, target, num_clients):
 
 # Uniform split data with equal distribution
 def split_data_uniform(features, target, num_clients, rng):
-    # Controlla se il numero di clienti è valido
+    # Check if number of clients is valid
     if num_clients <= 0:
         raise ValueError("Number of clients must be greater than 0.")
     unique_labels = np.unique(target)
@@ -155,24 +155,32 @@ def split_data_uniform(features, target, num_clients, rng):
     
     shuffled_indices = rng.permutation(len(features))
 
-    # One sample of each class to each client
+    # Distribute one sample of each class to each client (if available)
     for class_label in unique_labels:
         class_indices = np.where(target == class_label)[0]
         rng.shuffle(class_indices)
-        for i, client_index in enumerate(range(num_clients)):
+        # Only distribute up to min(num_clients, number of samples for this class)
+        num_to_distribute = min(num_clients, len(class_indices))
+        for i in range(num_to_distribute):
             index = class_indices[i]
-            X_clients[client_index].append(features[index])
-            Y_clients[client_index].append(target[index])
+            X_clients[i].append(features[index])
+            Y_clients[i].append(target[index])
 
     # Remaining samples in uniform distribution
     for index in shuffled_indices:
         x_sample, y_sample = features[index], target[index]
-        min_samples_client = min(range(num_clients), key=lambda k: len(Y_clients[k]))
+        # Skip if already distributed in the first phase
+        already_distributed = any(
+            np.array_equal(x_sample, x) and y_sample == y
+            for client_x, client_y in zip(X_clients, Y_clients)
+            for x, y in zip(client_x, client_y)
+        )
+        if not already_distributed:
+            min_samples_client = min(range(num_clients), key=lambda k: len(Y_clients[k]))
+            X_clients[min_samples_client].append(x_sample)
+            Y_clients[min_samples_client].append(y_sample)
 
-        X_clients[min_samples_client].append(x_sample)
-        Y_clients[min_samples_client].append(y_sample)
-
-    # Convert lists in numpy arrays
+    # Convert lists to numpy arrays
     X_clients = [np.array(client) for client in X_clients]
     Y_clients = [np.array(client) for client in Y_clients]
 
