@@ -1,241 +1,264 @@
+
+from typing import Any, Generator, Iterable, Union
+
 import numpy as np
-import pandas as pd
-import random
-import wandb
-import argparse
-import itertools
-import os
-
-from sklearn.linear_model import RidgeClassifier
+import torch
+from fluke import FlukeENV  # NOQA
+from fluke.algorithms import CentralizedFL  # NOQA
+from fluke.client import Client  # NOQA
+from fluke.comm import Message  # NOQA
+from fluke.data import FastDataLoader  # NOQA
+from fluke.server import EarlyStopping, Server  # NOQA
+from fluke.utils import OptimizerConfigurator  # NOQA
+from rich.progress import track
+from sklearn.linear_model import RidgeClassifierCV  # NOQA
+from sklearn.metrics import accuracy_score
 from sktime.transformations.panel.rocket import Rocket
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import f1_score, accuracy_score
-from sklearn.linear_model import RidgeClassifierCV
-from sklearn.model_selection import train_test_split
-from utils import load_dataset, preprocess_data, split_function, RocketKernel, transform_seeds, get_binary_dataset_names, get_three_classes_dataset_names, get_four_classes_dataset_names, get_multiclasses_dataset_names
-from sklearn.preprocessing import LabelBinarizer
 
-parser = argparse.ArgumentParser()
-parser.add_argument('-c', '--clients', type=int, default=4, help='Choose the number of parties of the federation')
-parser.add_argument('-k', '--kernels', type=int, default=100, help='Choose the number of ROCKET kernels to use')
-parser.add_argument('-r', '--rounds', type=int, default=100, help='Choose the number of rounds of federated training')
-parser.add_argument('-v', '--validation', action='store_true', help='Choose this option to enable a grid search for the lambda regularizer on a validation set.')
-parser.add_argument('--debug', action='store_true', help='Use this option to disable WandB metrics tracking')
-args = parser.parse_args()
+FEAT_CACHE = {}
 
-# Constants
-n_clients = args.clients 
-n_kernels = args.kernels
-n_rounds = args.rounds
-top_k_per_client = (n_kernels * 1) // n_clients
-EXPERIMENT_SEEDS = [1,2,3,4,5]
 
-def main():
-    #list_of_datasets = get_binary_dataset_names()
-    #list_of_datasets = get_three_classes_dataset_names()
-    #list_of_datasets = get_four_classes_dataset_names()
-    #list_of_datasets = get_multiclasses_dataset_names()
-    #list_of_datasets = ['PigCVP'] #example
-    list_of_datasets = get_binary_dataset_names() + get_three_classes_dataset_names() + get_four_classes_dataset_names() + get_multiclasses_dataset_names()
+def get_from_cache(client_id: int, seed: int) -> np.ndarray:
+    if client_id in FEAT_CACHE and seed in FEAT_CACHE[client_id]:
+        return FEAT_CACHE[client_id][seed]
+    return None
 
-    if args.debug:
-        wandb.init(mode="disabled")
-    else:
-        None
 
-    # All the runs
-    run_names = []
-    runs = wandb.Api().runs("mlgroup/Fed2RC")
-    for run in runs:
-        run_names.append(run.name)
-    #print("RUN NAMES DONE: ", run_names)
-    wandb.finish()
+def put_in_cache(client_id: int, seed: int, value: np.ndarray) -> None:
+    if client_id not in FEAT_CACHE:
+        FEAT_CACHE[client_id] = {}
+    FEAT_CACHE[client_id][seed] = value
 
-    for ds_name in list_of_datasets:
-        print('DATASET', ds_name)
 
-        X_train, Y_train, X_test, Y_test = load_dataset(ds_name)
+def transform(X: np.ndarray,
+              client_id: int,
+              seed: int,
+              ppv_only: bool = True,
+              caching: bool = True) -> np.ndarray:
+    if caching:
+        cached = get_from_cache(client_id, seed)
+        if cached is not None:
+            return cached
 
-        n_classes = len(np.unique(np.concatenate([Y_train, Y_test], axis=0)))
-        X_train, Y_train, X_test, Y_test = preprocess_data(X_train, Y_train, X_test, Y_test)
+    rocket = Rocket(num_kernels=1, random_state=seed, n_jobs=1)
+    rocket.fit(np.zeros((1, 1, X.shape[1])))
 
-        if args.debug:
-            wandb.init(mode="disabled")
+    if len(X.shape) <= 1:
+        X = X.reshape(1, -1)
+
+    X_transformed = rocket.transform(np.expand_dims(X, 1)).to_numpy()
+    if ppv_only:
+        X_transformed = X_transformed[:, 0:1]
+
+    if caching:
+        put_in_cache(client_id, seed, X_transformed)
+
+    return X_transformed
+
+
+def transform_seeds(X: np.ndarray,
+                    client_id: int,
+                    seeds: Iterable[int],
+                    caching: bool = True,
+                    use_torch: bool = False) -> Union[np.ndarray, torch.Tensor]:
+    Xnp = np.concatenate([transform(X, client_id, int(seed), caching=caching)
+                         for seed in seeds], axis=1)
+    return torch.tensor(Xnp, dtype=torch.float32) if use_torch else Xnp.astype(np.float32)
+
+
+class RidgeTorchModel(torch.nn.Module):
+    def __init__(self,
+                 W: np.ndarray,
+                 b: np.ndarray,
+                 seeds: Iterable[int]):
+        super().__init__()
+        self.model = torch.nn.Linear(W.shape[1], W.shape[0], bias=b is not None)
+        self.seeds = seeds
+
+        with torch.no_grad():
+            self.model.weight.copy_(torch.tensor(W, dtype=torch.float32))
+            if b is not None:
+                self.model.bias.copy_(torch.tensor(b, dtype=torch.float32))
+
+    def forward(self, X: torch.Tensor):
+        X = transform_seeds(X, -1, self.seeds, use_torch=True, caching=False)
+        output = self.model(X)
+        return output
+
+
+class ClientFed2RC(Client):
+
+    def __init__(self,
+                 index: int,
+                 train_set: FastDataLoader,
+                 test_set: FastDataLoader,
+                 optimizer_cfg: OptimizerConfigurator,  # Not used
+                 loss_fn: torch.nn.Module,  # Not used
+                 local_epochs: int = 3,  # Not used
+                 fine_tuning_epochs: int = 0,  # Not used
+                 clipping: float = 0,  # Not used
+                 n_kernels: int = 1,
+                 top_k: int = 1,
+                 **kwargs: dict[str, Any]):
+        super().__init__(index, train_set, test_set, None, None, 0, 0, 0, **kwargs)
+        self.hyper_params.update(n_kernels=n_kernels, top_k=top_k)
+        self.seeds: Iterable[int] = np.arange((self.index) * n_kernels,
+                                              (self.index + 1) * n_kernels)
+        self.converged: bool = False
+        self.A: np.ndarray = None
+        self.b: np.ndarray = None
+
+    def send_model(self):
+        if self.converged:
+            self.channel.send(Message((self.A, self.b), "Ab", self), self.server)
         else:
-            entity = "mlgroup"
-            project = "Fed2RC"
-            if args.validation:
-                run_name = f"VAL_{ds_name}_{n_kernels}KERNELS_{n_clients}CLIENTS"
-            else:
-                run_name = f"{ds_name}_{n_kernels}KERNELS_{n_clients}CLIENTS"
-            tags = ["Fed2RC"]
-            if run_name in run_names:
-                print(f"Experiment {run_name} already executed.")
-                continue
-            else:
-                wandb.init(project=project, entity=entity, group=f"{run_name}", name=run_name, tags=tags)
+            self.channel.send(Message(self.top_k_idx, "seeds", self), self.server)
 
-        for experiment_seed in EXPERIMENT_SEEDS:
-            print('SEED', experiment_seed)
-            rng = np.random.RandomState(experiment_seed)
-            np.random.seed(experiment_seed)
-            random.seed(experiment_seed)
-            os.environ['PYTHONHASHSEED'] = str(experiment_seed)
-            
-            if ds_name in ["DiatomSizeReduction", "Fungi", "PigAirwayPressure", "PigArtPressure", "PigCVP"]:
-                split = "random"
-                s_X_Y_train = split_function(X_train, Y_train, n_clients, rng, my_split=split)
-                s_X_Y_test = split_function(X_test, Y_test, n_clients, rng, my_split=split)
-                s_X_train = [x for x, _ in s_X_Y_train]
-                s_Y_train = [y for _, y in s_X_Y_train]
-                s_X_test = [x for x, _ in s_X_Y_test]
-                s_Y_test = [y for _, y in s_X_Y_test]
-            else:
-                split='uniform'
-                s_X_train, s_Y_train = split_function(X_train, Y_train, n_clients, rng, my_split=split)
-                s_X_test, s_Y_test = split_function(X_test, Y_test, n_clients, rng, my_split=split)
-            
+    def receive_model(self):
+        self.converged = self.channel.receive(self, self.server, msg_type="converge").payload
+        if not self.converged:
+            msg = self.channel.receive(self, self.server, msg_type="seeds")
+            self.seeds = msg.payload if self.server.rounds != 0 else self.seeds
 
-            # Initialize different seeds for all clients
-            seeds = np.arange(n_clients * n_kernels).reshape(n_clients, n_kernels)
+    def fit(self, **kwargs: dict[str, Any]) -> float:
+        X, y = self.train_set.tensors
+        X, y = X.numpy(), y.numpy()
+        X_trans = transform_seeds(X, self.index, self.seeds)
 
-            dict_seeds = {}
-            for client_id in range(n_clients):
-                dict_seeds[client_id] = seeds[client_id]
+        if self.converged:
+            y_onehot = np.eye(self.train_set.num_labels)[y]
+            self.A = X_trans.T @ X_trans
+            self.b = X_trans.T @ y_onehot
+        else:
+            ridge = RidgeClassifierCV(alphas=np.logspace(-3, 0, 100)).fit(X_trans, y)
+            # Useful if client evaluation is needed
+            self.model = RidgeTorchModel(ridge.coef_,
+                                         ridge.intercept_,
+                                         self.seeds)
+            self.top_k_idx = self.seeds[np.argsort(-np.abs(ridge.coef_[0]))
+                                        [:self.hyper_params.top_k]]
 
-            ts_length = len(X_train[0])
-            n_classes = len(np.unique(Y_train))
-            kernels = [[RocketKernel(seed=int(seed), ts_length=ts_length, ppv_only=True) for seed in dict_seeds[client_id]] for client_id in range(n_clients)]
+        return 0.0
+
+    def tune_lambda(self):
+        A_global, b_global = self.channel.receive(self, self.server, "Ab").payload
+        A_minus_client = A_global - self.A
+        b_minus_client = b_global - self.b
+
+        X, y = self.train_set.tensors
+        X, y = X.numpy(), y.numpy()
+        X_trans = transform_seeds(X, self.index, self.seeds)
+
+        best_accuracy = 0
+        tmp_lambda = 0
+
+        for cv_lambda in np.logspace(-3, 0, 100):
+            local_A_final = A_minus_client + cv_lambda * np.eye(A_global.shape[0])
+            local_W_final = np.linalg.solve(local_A_final, b_minus_client)
+            local_W_final = local_W_final / \
+                (np.linalg.norm(local_W_final, axis=0, keepdims=True) + 1e-10)
+            local_y_pred = np.argmax(X_trans @ local_W_final, axis=1)
+            local_accuracy = accuracy_score(y, local_y_pred)
+            if best_accuracy < local_accuracy or \
+                    (best_accuracy == local_accuracy and cv_lambda > tmp_lambda):
+                tmp_lambda = cv_lambda
+                best_accuracy = local_accuracy
+
+        self.channel.send(Message((tmp_lambda * best_accuracy, best_accuracy),
+                          "lambda", self), self.server)
 
 
-            best_accuracy = 0
-            best_seeds = None
-            previous_seeds = 0
-            consecutive_same_seeds = 0 
-            selected_seeds = {}
+class ServerFed2RC(Server):
 
-            for epoch in range(n_rounds +1):
-                train_accs = np.array([], dtype=float)
-                round_selected_seeds = np.array([], dtype=int)
-                train_accuracies = np.array([], dtype=float)
-                lambdas = np.array([], dtype=float)
-                for client_id in range(n_clients):
-                    x_train, y_train = s_X_train[client_id], s_Y_train[client_id]
-                    if args.validation:
-                        x_train, x_val, y_train, y_val = train_test_split(x_train, y_train, test_size = 0.1, random_state=experiment_seed)
-                    client_seeds = dict_seeds[client_id]
-                    x_trans = transform_seeds(x_train, client_seeds, ts_length)
-                    model = RidgeClassifierCV(alphas=np.logspace(-3,0,100)).fit(x_trans, y_train)
-                    w = model.coef_[0] 
-                    train_acc = model.score(x_trans, y_train)
-                    train_accuracies = np.concatenate([train_accuracies, [train_acc]])
-                    top_k_idx = np.argsort(-np.abs(w))[:top_k_per_client]
-                    top_k_seeds = client_seeds[top_k_idx]
-                    round_selected_seeds = np.concatenate([round_selected_seeds, top_k_seeds])
-                    lambdas = np.concatenate([lambdas, [model.alpha_ * train_acc]])
-                    train_accs = np.concatenate([train_accs, [train_acc]])
-                    
-                round_selected_seeds = np.unique(round_selected_seeds)
-                final_num_kernels = len(round_selected_seeds)
-                mean_train_accuracy = np.mean(train_accuracies)
-                    
-                print(f"\n=== Round {epoch + 1} ===, Mean Train Accuracy: {mean_train_accuracy:.4f}, Number of unique seeds: {final_num_kernels}")
-                    
-                if previous_seeds is not None and np.array_equal(previous_seeds, round_selected_seeds):
-                    consecutive_same_seeds += 1
-                    if consecutive_same_seeds >= 1: 
-                        print("\n Convergence achieved: Seeds unchanged for 2 consecutive epochs. Training terminated.")
-                        break
+    def __init__(self,
+                 model: RidgeTorchModel,
+                 test_set: FastDataLoader,
+                 clients: Iterable[Client],
+                 weighted: bool = False,
+                 lr: float = 1.0,
+                 tune_lambda: bool = False,
+                 **kwargs: dict[str, Any]):
+        super().__init__(None, test_set, clients, weighted, None, **kwargs)
+        self.hyper_params.update(tune_lambda=tune_lambda)
+        self.seeds = []
+        self.converged = False
+
+    def receive_client_models(self,
+                              eligible: Iterable[Client],
+                              **kwargs: dict[str, Any]) -> Generator[Any, None, None]:
+        if not self.converged:
+            for client in eligible:
+                client_seeds = self.channel.receive(self, client, "seeds").payload
+                yield client_seeds
+        else:
+            for client in eligible:
+                client_Ab = self.channel.receive(self, client, "Ab").payload
+                yield client_Ab
+
+    def broadcast_model(self, eligible: Iterable[Client]) -> None:
+        self.channel.broadcast(Message(self.converged, "converge", self), eligible)
+        if not self.converged:
+            self.channel.broadcast(Message(self.seeds, "seeds", self), eligible)
+
+    def _compute_final_model(self, lam: float = 0.01) -> None:
+        A_final = self.A + lam * np.eye(self.A.shape[0])
+        W_final = np.linalg.solve(A_final, self.b)
+        W_final = W_final / (np.linalg.norm(W_final, axis=0, keepdims=True) + 1e-10)
+        self.model = RidgeTorchModel(W_final.T, None, self.seeds)
+
+    def aggregate(self,
+                  eligible: Iterable[Client],
+                  client_seeds_ab: Generator[Any, None, None]) -> None:
+        if not self.converged:
+            seeds = np.concatenate(list(client_seeds_ab), axis=0)
+            seeds = np.unique(seeds)
+            self.converged = (len(self.seeds) == len(seeds)) and np.all(self.seeds == seeds)
+            self.seeds = seeds
+            self._notify_track_item(item="seeds", value=len(self.seeds))
+        else:
+            A_global = np.zeros((len(self.seeds), len(self.seeds)))
+            b_global = None
+
+            for client_Ab in client_seeds_ab:
+                A, b = client_Ab
+                A_global += A
+                if b_global is None:
+                    b_global = b
                 else:
-                    consecutive_same_seeds = 0
-                
-                previous_seeds = round_selected_seeds.copy()
-                
-                for client_id in range(n_clients):
-                    dict_seeds[client_id] = round_selected_seeds.copy()
-                        
-                    
-            A_global = np.zeros((final_num_kernels, final_num_kernels))
-            b_global = np.zeros((final_num_kernels, n_classes))
-            A_locals, b_locals = [], []
-            for client_id in range(n_clients):
-                x_train, y_train = s_X_train[client_id], s_Y_train[client_id]
-                client_seeds = dict_seeds[client_id]
-                x_trans = transform_seeds(x_train, client_seeds, ts_length)  
-                y_onehot = np.eye(n_classes)[y_train]
-                A_local = x_trans.T @ x_trans
-                b_local = x_trans.T @ y_onehot
-                A_locals.append(A_local)
-                b_locals.append(b_local)
-                        
-                A_global += A_local
-                b_global += b_local
+                    b_global += b
+            self.A, self.b = A_global, b_global
+
+            if not self.hyper_params.tune_lambda:
+                self._compute_final_model(0.01)
+
+            raise EarlyStopping(self.rounds)
+
+    def finalize(self) -> None:
+
+        if self.converged and self.hyper_params.tune_lambda:
+            self.channel.broadcast(Message((self.A, self.b), "Ab", self), self.clients)
+            local_best_lambdas = np.zeros(len(self.clients))
+            local_best_accs = np.zeros(len(self.clients))
+            for client in track(self.clients, description="Validating lambda...", transient=True):
+                client.tune_lambda()
+                local_lam, local_acc = self.channel.receive(self, client, "lambda").payload
+                local_best_accs[client.index] = local_acc
+                local_best_lambdas[client.index] = local_lam
+
+            lam = np.sum(local_best_lambdas)/np.sum(local_best_accs)
+            self._compute_final_model(lam)
+
+        if FlukeENV().get_eval_cfg().server:
+            evals = self.evaluate(FlukeENV().get_evaluator(), self.test_set)
+            self._notify_evaluation(self.rounds + 1, "global", evals)
+
+        self._notify_finalize()
 
 
-            #cross validation for best lambda
-            local_best_lambdas = np.array([])
-            local_best_accs = np.array([])
-            tmp_lambda = 0
-            for client_id in range(n_clients):
-                best_accuracy = 0
-                x_train, y_train = s_X_train[client_id], s_Y_train[client_id]
-                if args.validation:
-                    _, x_val, _, y_val = train_test_split(x_train, y_train, test_size = 0.1, random_state=experiment_seed)
-                client_seeds = dict_seeds[client_id]
-                x_trans = transform_seeds(x_train, client_seeds, ts_length)  
-                if args.validation:
-                    x_trans = transform_seeds(x_val, client_seeds, ts_length)
-                y_onehot = np.eye(n_classes)[y_train]
+class Fed2RC(CentralizedFL):
 
-                A_minus_client = A_global - A_locals[client_id]
-                b_minus_client = b_global - b_locals[client_id]
-                
-                for cv_lambda in np.logspace(-3,0,100):
-                    if args.validation == False:
-                        local_A_final = A_minus_client + cv_lambda * np.eye(A_global.shape[0])
-                        local_W_final = np.linalg.solve(local_A_final, b_minus_client)
-                    else:
-                        local_A_final = A_global + cv_lambda * np.eye(A_global.shape[0])
-                        local_W_final = np.linalg.solve(local_A_final, b_global)
-                    local_W_final =  local_W_final / (np.linalg.norm(local_W_final, axis=0, keepdims=True) + 1e-10)
-                    local_y_pred = np.argmax(x_trans @ local_W_final, axis=1)
-                    if args.validation == False:
-                        local_accuracy = accuracy_score(y_train, local_y_pred)
-                    else:
-                        local_accuracy = accuracy_score(y_val, local_y_pred)
-                    if best_accuracy < local_accuracy or (best_accuracy == local_accuracy and cv_lambda > tmp_lambda):
-                        tmp_lambda = cv_lambda
-                        best_accuracy = local_accuracy
-                    #print("Client: ", client_id, "best local accuracy: ", local_accuracy, "with lambda: ", cv_lambda)
-                local_best_lambdas = np.concatenate([local_best_lambdas, [tmp_lambda * best_accuracy]])
-                local_best_accs = np.concatenate([local_best_accs, [best_accuracy]])
+    def get_client_class(self) -> type[Client]:
+        return ClientFed2RC
 
-            A_final = A_global + np.sum(local_best_lambdas)/np.sum(local_best_accs) * np.eye(A_global.shape[0])
-            W_final = np.linalg.solve(A_final, b_global)
-            W_final =  W_final / (np.linalg.norm(W_final, axis=0, keepdims=True) + 1e-10)
-            X_test_trans = transform_seeds(X_test, round_selected_seeds, ts_length)
-            y_pred = np.argmax(X_test_trans @ W_final, axis=1)
-            test_accuracy = accuracy_score(Y_test, y_pred)
-            if n_classes == 2:
-                test_f1 = f1_score(Y_test, y_pred)
-            else:
-                test_f1 = f1_score(Y_test, y_pred, average = 'macro')
-
-            print(f"Test Accuracy: {test_accuracy:.4f}, Test F1: {test_f1}, Number of unique seeds: {n_kernels}")
-
-            if args.validation:    
-                wandb.log({f'Test Accuracy using a regularizer coming from a validation set ({experiment_seed})': test_accuracy,
-                            f'Test F1 using a regularizer coming from a validation set ({experiment_seed})': test_f1,
-                            f'Validation Regularizer': np.sum(local_best_lambdas)/np.sum(local_best_accs),
-                            f'Rounds': ({epoch}),
-                            f'Kernels': final_num_kernels})
-            else:
-                wandb.log({f'Test Accuracy ({experiment_seed})': test_accuracy,
-                            f'Test F1 ({experiment_seed})': test_f1,
-                            f'Validation Regularizer': np.sum(local_best_lambdas)/np.sum(local_best_accs),
-                            f'Rounds': ({epoch}),
-                            f'Kernels': final_num_kernels})
-        wandb.finish()
-
-if __name__ == '__main__':
-    main()
+    def get_server_class(self) -> type[Server]:
+        return ServerFed2RC

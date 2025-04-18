@@ -130,6 +130,8 @@ dmypy.json
 .streamflow
 
 # Data
+/code/data/
+/data/
 *.npy
 *.h5
 *.pt

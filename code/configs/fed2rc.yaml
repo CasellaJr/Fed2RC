@@ -1,0 +1,23 @@
+hyperparameters:
+  client:
+    batch_size: 100
+    local_epochs: 10
+    loss: CrossEntropyLoss
+    top_k: 250
+    n_kernels: 1000
+    optimizer:
+      lr: 0.001
+      name: AdamW
+      # momentum: 0.9
+      # weight_decay: 0.0001
+    scheduler:
+      gamma: 1
+      step_size: 1
+  server:
+    # To activate Robertata - tune_lambda: true
+    tune_lambda: false
+  model: mynets.MLP
+  net_args:
+    in_channels: 176
+    num_classes: 37
+name: fed2rc.Fed2RC

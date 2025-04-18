@@ -1,0 +1,38 @@
+# For more details on how to create your config file 
+# https://makgyver.github.io/fluke/configuration.html
+data:
+  dataset:
+    name: mydata.UCRArchive
+    path: ./data
+    ds_name: Adiac
+  distribution:
+    name: iid
+  sampling_perc: 1
+  client_split: 0
+  keep_test: true
+  server_test: true
+  server_split: 0.0 # not used in this case
+  uniform_test: false
+exp:
+  device: cpu
+  seed: 42
+  inmemory: true
+eval:
+  task: classification
+  eval_every: 1
+  # pre_fit: true
+  # post_fit: true
+  # global: true
+# save:
+#   path: mypath
+#   save_every: 10,
+#   global_only: False
+logger:
+  name: Log
+  # name: WandBLog
+  # project: myproject
+  # entity: entity
+protocol:
+  eligible_perc: 1
+  n_clients: 4
+  n_rounds: 100
