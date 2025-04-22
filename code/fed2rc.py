@@ -132,7 +132,7 @@ class ClientFed2RC(Client):
         else:
             ridge = RidgeClassifierCV(alphas=np.logspace(-3, 0, 100)).fit(X_trans, y)
             # Useful if client evaluation is needed
-            self.model = RidgeTorchModel(ridge.coef_,
+            self.model = RidgeTorchModel(np.atleast_2d(ridge.coef_),
                                          ridge.intercept_,
                                          self.seeds)
             self.top_k_idx = self.seeds[np.argsort(-np.abs(ridge.coef_[0]))
