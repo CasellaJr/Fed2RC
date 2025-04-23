@@ -3,6 +3,7 @@ from typing import Any, Generator, Iterable, Union
 
 import numpy as np
 import torch
+import warnings
 from fluke import FlukeENV  # NOQA
 from fluke.algorithms import CentralizedFL  # NOQA
 from fluke.client import Client  # NOQA
@@ -99,9 +100,13 @@ class ClientFed2RC(Client):
                  clipping: float = 0,  # Not used
                  n_kernels: int = 1,
                  top_k: int = 1,
+                 compression_factor: int = 0,
                  **kwargs: dict[str, Any]):
+        assert compression_factor >= 1, "Compression factor must be greater or equal than 1"
+        assert n_kernels > 0, "Number of kernels must be greater than 0"
         super().__init__(index, train_set, test_set, None, None, 0, 0, 0, **kwargs)
-        self.hyper_params.update(n_kernels=n_kernels, top_k=top_k)
+        self.hyper_params.update(n_kernels=n_kernels, top_k=top_k,
+                                 compression_factor=compression_factor)
         self.seeds: Iterable[int] = np.arange((self.index) * n_kernels,
                                               (self.index + 1) * n_kernels)
         self.converged: bool = False
@@ -129,6 +134,20 @@ class ClientFed2RC(Client):
             y_onehot = np.eye(self.train_set.num_labels)[y]
             self.A = X_trans.T @ X_trans
             self.b = X_trans.T @ y_onehot
+
+            if self.hyper_params.compression_factor > 1:
+                eigvals, eigvecs = np.linalg.eigh(self.A)
+
+                idx = np.argsort(eigvals)[::-1]
+                eigvals = eigvals[idx]
+                eigvecs = eigvecs[:, idx]
+                k = max(1, self.hyper_params.n_kernels // self.hyper_params.compression_factor)
+                if self.hyper_params.compression_factor > self.hyper_params.n_kernels:
+                    warnings.warn("Compression factor is greater than the number of kernels. "
+                                  "Using the number of kernels instead.")
+                U_k = eigvecs[:, :k]
+                Lambda_k = np.diag(eigvals[:k])
+                self.A = (U_k, Lambda_k)
         else:
             ridge = RidgeClassifierCV(alphas=np.logspace(-3, 0, 100)).fit(X_trans, y)
             # Useful if client evaluation is needed
@@ -178,7 +197,7 @@ class ServerFed2RC(Server):
                  lr: float = 1.0,
                  tune_lambda: bool = False,
                  **kwargs: dict[str, Any]):
-        super().__init__(None, test_set, clients, weighted, None, **kwargs)
+        super().__init__(model=None, test_set=test_set, clients=clients, **kwargs)
         self.hyper_params.update(tune_lambda=tune_lambda)
         self.seeds = []
         self.converged = False
@@ -221,6 +240,9 @@ class ServerFed2RC(Server):
 
             for client_Ab in client_seeds_ab:
                 A, b = client_Ab
+                if isinstance(A, tuple):
+                    U, L = A
+                    A = U @ L @ U.T
                 A_global += A
                 if b_global is None:
                     b_global = b

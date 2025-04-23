@@ -5,6 +5,7 @@ hyperparameters:
     loss: CrossEntropyLoss
     top_k: 250
     n_kernels: 1000
+    compression_factor: 10
     optimizer:
       lr: 0.001
       name: AdamW
