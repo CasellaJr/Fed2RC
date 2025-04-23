@@ -3,7 +3,7 @@
 data:
   dataset:
     name: mydata.UCRArchive
-    path: ./data
+    path: ../../../..
     ds_name: Adiac
   distribution:
     name: iid

@@ -15,7 +15,7 @@ hyperparameters:
       gamma: 1
       step_size: 1
   server:
-    # To activate Robertata - tune_lambda: true
+    # To activate the Lambda selection protocol - tune_lambda: true
     tune_lambda: false
   model: mynets.MLP
   net_args:
