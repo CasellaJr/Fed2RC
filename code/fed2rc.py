@@ -87,6 +87,18 @@ class RidgeTorchModel(torch.nn.Module):
         return output
 
 
+def compress_model(A: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray, int]:
+    eigvals, eigvecs = np.linalg.eigh(A)
+
+    idx = np.argsort(eigvals)[::-1]
+    eigvals = eigvals[idx]
+    eigvecs = eigvecs[:, idx]
+
+    U_k = eigvecs[:, :k]
+    Lambda_k = np.diag(eigvals[:k])
+    return (U_k, Lambda_k)
+
+
 class ClientFed2RC(Client):
 
     def __init__(self,
@@ -136,17 +148,12 @@ class ClientFed2RC(Client):
             self.b = X_trans.T @ y_onehot
 
             if self.hyper_params.compression_factor > 1:
-                eigvals, eigvecs = np.linalg.eigh(self.A)
-
-                idx = np.argsort(eigvals)[::-1]
-                eigvals = eigvals[idx]
-                eigvecs = eigvecs[:, idx]
                 k = max(1, self.hyper_params.n_kernels // self.hyper_params.compression_factor)
                 if self.hyper_params.compression_factor > self.hyper_params.n_kernels:
                     warnings.warn("Compression factor is greater than the number of kernels. "
                                   "Using the number of kernels instead.")
-                U_k = eigvecs[:, :k]
-                Lambda_k = np.diag(eigvals[:k])
+
+                U_k, Lambda_k = compress_model(self.A, k)
                 self.A = (U_k, Lambda_k)
         else:
             ridge = RidgeClassifierCV(alphas=np.logspace(-3, 0, 100)).fit(X_trans, y)
@@ -160,13 +167,17 @@ class ClientFed2RC(Client):
         return 0.0
 
     def tune_lambda(self):
-        A_global, b_global = self.channel.receive(self, self.server, "Ab").payload
-        A_minus_client = A_global - self.A
-        b_minus_client = b_global - self.b
-
         X, y = self.train_set.tensors
         X, y = X.numpy(), y.numpy()
         X_trans = transform_seeds(X, self.index, self.seeds)
+
+        A_global, b_global = self.channel.receive(self, self.server, "Ab").payload
+        if isinstance(A_global, tuple):
+            U, L = A_global
+            A_global = U @ L @ U.T
+            self.A = X_trans.T @ X_trans
+        A_minus_client = A_global - self.A
+        b_minus_client = b_global - self.b
 
         best_accuracy = 0
         tmp_lambda = 0
@@ -201,6 +212,7 @@ class ServerFed2RC(Server):
         self.hyper_params.update(tune_lambda=tune_lambda)
         self.seeds = []
         self.converged = False
+        self.compression_k = 0
 
     def receive_client_models(self,
                               eligible: Iterable[Client],
@@ -242,6 +254,7 @@ class ServerFed2RC(Server):
                 A, b = client_Ab
                 if isinstance(A, tuple):
                     U, L = A
+                    self.compression_k = U.shape[1]
                     A = U @ L @ U.T
                 A_global += A
                 if b_global is None:
@@ -258,7 +271,12 @@ class ServerFed2RC(Server):
     def finalize(self) -> None:
 
         if self.converged and self.hyper_params.tune_lambda:
-            self.channel.broadcast(Message((self.A, self.b), "Ab", self), self.clients)
+
+            if self.compression_k > 0:
+                U, L = compress_model(self.A, self.compression_k)
+                self.channel.broadcast(Message(((U, L), self.b), "Ab", self), self.clients)
+            else:
+                self.channel.broadcast(Message((self.A, self.b), "Ab", self), self.clients)
             local_best_lambdas = np.zeros(len(self.clients))
             local_best_accs = np.zeros(len(self.clients))
             for client in track(self.clients, description="Validating lambda...", transient=True):
