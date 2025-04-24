@@ -293,6 +293,8 @@ class ServerFed2RC(Server):
             evals = self.evaluate(FlukeENV().get_evaluator(), self.test_set)
             self._notify_evaluation(self.rounds + 1, "global", evals)
 
+            for k,v in evals.items():
+                self._notify_track_item(item=k, value=v)
         self._notify_finalize()
 
 
