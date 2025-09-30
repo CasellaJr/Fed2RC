@@ -1,4 +1,4 @@
-Dataset,InceptionTime InceptionTime Accuracy Mean,InceptionTime InceptionTime Accuracy Std,InceptionTime InceptionTime F1 Mean,InceptionTime InceptionTime F1 Std
+Dataset,Accuracy Mean,Accuracy Std,F1 Mean,F1 Std
 Yoga,0.7257979999999999,0.025065595863653412,0.715728,0.03131182294277995
 WormsTwoClass,0.755844,0.05473158232684305,0.752234,0.05314441554857856
 Worms,0.6779240000000001,0.03523317221029068,0.58914,0.05720324536247922
