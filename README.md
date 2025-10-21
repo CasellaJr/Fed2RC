@@ -9,7 +9,7 @@ Bruno Casella, Samuele Fonio, Lorenzo Sciandra, Claudio Gallicchio, Marco Aldinu
 
 # Overview
 
-This repository contains the code to run and reproduce the experiments of the Fed2RC algorithm algorithm and baselines.
+This repository contains the code to run and reproduce the experiments of the Fed2RC algorithm and baselines.
 
 Please cite as:
 
