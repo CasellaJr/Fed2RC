@@ -14,13 +14,16 @@ This repository contains the code to run and reproduce the experiments of the Fe
 Please cite as:
 
 ```bibtex
-@inproceedings{casella2025fed2rc,
-  author  = {Casella, Bruno and Fonio, Samuele and Sciandra, Lorenzo and Gallicchio, Claudio and Aldinucci, Marco and Polato, Mirko and Esposito, Roberto},
-  title   = {Fed2RC: Federated Rocket Kernels and Ridge Classifier for Time Series Classification,
-  booktitle    = {28th European Conference on Artificial Intelligence, {ECAI} 2025, Bologna, Italy, October 25-30, 2025},
-  year         = {2025},
-  doi          = {},
-  url = {}
+@inproceedings{casella25fed2rc,
+	title = {{Fed2RC}: {Federated} {Rocket} {Kernels} and {Ridge} {Classifier} for {Time} {Series} {Classification}},
+	shorttitle = {{Fed2RC}},
+	language = {en},
+	booktitle = {{ECAI} 2025},
+	publisher = {IOS Press},
+	author = {Casella, Bruno and Fonio, Samuele and Sciandra, Lorenzo and Gallicchio, Claudio and Aldinucci, Marco and Polato, Mirko and Esposito, Roberto},
+	year = {2025},
+	doi = {10.3233/FAIA251198},
+	pages = {3297--3304},
 }
 ```
 
