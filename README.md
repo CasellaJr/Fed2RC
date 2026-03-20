@@ -3,24 +3,27 @@
 # Fed2RC: Federated Rocket Kernels and Ridge Classifier for Time Series Classification
 Bruno Casella, Samuele Fonio, Lorenzo Sciandra, Claudio Gallicchio, Marco Aldinucci, Mirko Polato and Roberto Esposito
 
-[![Conference](https://img.shields.io/badge/ECAI-2025-red)](add_link)
+[![Conference](https://img.shields.io/badge/ECAI-2025-red)](https://ebooks.iospress.nl/doi/10.3233/FAIA251198)
 
 </div>
 
 # Overview
 
-This repository contains the code to run and reproduce the experiments of the Fed2RC algorithm algorithm and baselines.
+This repository contains the code to run and reproduce the experiments of the Fed2RC algorithm and baselines.
 
 Please cite as:
 
 ```bibtex
-@inproceedings{casella2025fed2rc,
-  author  = {Casella, Bruno and Fonio, Samuele and Sciandra, Lorenzo and Gallicchio, Claudio and Aldinucci, Marco and Polato, Mirko and Esposito, Roberto},
-  title   = {Fed2RC: Federated Rocket Kernels and Ridge Classifier for Time Series Classification,
-  booktitle    = {28th European Conference on Artificial Intelligence, {ECAI} 2025, Bologna, Italy, October 25-30, 2025},
-  year         = {2025},
-  doi          = {},
-  url = {}
+@inproceedings{casella25fed2rc,
+	title = {{Fed2RC}: {Federated} {Rocket} {Kernels} and {Ridge} {Classifier} for {Time} {Series} {Classification}},
+	shorttitle = {{Fed2RC}},
+	language = {en},
+	booktitle = {{ECAI} 2025},
+	publisher = {IOS Press},
+	author = {Casella, Bruno and Fonio, Samuele and Sciandra, Lorenzo and Gallicchio, Claudio and Aldinucci, Marco and Polato, Mirko and Esposito, Roberto},
+	year = {2025},
+	doi = {10.3233/FAIA251198},
+	pages = {3297--3304},
 }
 ```
 
