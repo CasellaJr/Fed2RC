@@ -43,6 +43,10 @@ Please cite as:
 # Abstract
 Time series classification is a pivotal task in modern machine learning, with widespread applications in fields such as healthcare, finance, and cybersecurity. While deep learning methods dominate recent developments, their resource demands and privacy limitations hinder deployment on low-power and decentralized environments. To address these challenges, we introduce Fed2RC, a fully federated and gradient-free approach that integrates the efficiency of Rocket-based feature extraction with the robustness of ridge regression in a privacy-preserving setting. Fed2RC builds upon two key ideas: (i) federated selection and aggregation of high-performing random convolution kernels, and (ii) incremental and communication-efficient updates of ridge classifier parameters using closed-form solutions. Additionally, we propose a novel federated protocol for selecting the global ridge regularization parameter $\lambda$, and show how to improve the communication efficiency by matrix factorization techniques. Extensive experiments on the UCR benchmark demonstrate that Fed2RC achieves state-of-the-art results with a fraction of the computation and communication costs.
 
+# Method
+<img width="4634" height="3631" alt="fed2rc+" src="https://github.com/user-attachments/assets/1b8f0204-22f0-4f1d-861d-f31a790cc134" />
+
+
 ## Usage
 - Clone this repo.
 - Download and unzip the UCRArchive Time Series Classification dataset: [UCRArchive](https://www.cs.ucr.edu/%7Eeamonn/time_series_data_2018/), and place it in the same directory of the repository.
