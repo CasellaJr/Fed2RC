@@ -4,6 +4,7 @@
 Bruno Casella, Samuele Fonio, Lorenzo Sciandra, Claudio Gallicchio, Marco Aldinucci, Mirko Polato and Roberto Esposito
 
 [![Conference](https://img.shields.io/badge/ECAI-2025-red)](https://ebooks.iospress.nl/doi/10.3233/FAIA251198)
+[![Conference](https://img.shields.io/badge/ECAI-2025-red)](https://ebooks.iospress.nl/doi/10.3233/FAIA251198)
 
 </div>
 
