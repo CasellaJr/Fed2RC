@@ -15,11 +15,23 @@ This repository contains the code to run and reproduce the experiments of the Fe
 Please cite as:
 
 ```bibtex
+@article{casella2026minifed2rc,
+  author = {Casella, Bruno and Fonio, Samuele and Sciandra, Lorenzo and Gallicchio, Claudio and Aldinucci, Marco and Polato, Mirko and Esposito, Roberto},
+  title        = {Fast Federated Time Series Classification using Rocket Kernels and Closed-form Classifiers},
+  journal      = {Data Mining and Knowledge Discovery},
+  volume       = {XX},
+  pages        = {xxx--yyy},
+  year         = {2026},
+  url          = {xxx.yyy},
+  doi          = {xxx.yyy},
+  tppubtype    = {inproceedings},
+}
+
 @inproceedings{casella25fed2rc,
-	title = {{Fed2RC}: {Federated} {Rocket} {Kernels} and {Ridge} {Classifier} for {Time} {Series} {Classification}},
-	shorttitle = {{Fed2RC}},
+	title = {Fed2RC: Federated Rocket Kernels and Ridge Classifier for Time Series Classification},
+	shorttitle = {Fed2RC},
 	language = {en},
-	booktitle = {{ECAI} 2025},
+	booktitle = {ECAI 2025},
 	publisher = {IOS Press},
 	author = {Casella, Bruno and Fonio, Samuele and Sciandra, Lorenzo and Gallicchio, Claudio and Aldinucci, Marco and Polato, Mirko and Esposito, Roberto},
 	year = {2025},
