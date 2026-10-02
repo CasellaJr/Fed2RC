@@ -10,7 +10,7 @@ Bruno Casella, Samuele Fonio, Lorenzo Sciandra, Claudio Gallicchio, Marco Aldinu
 
 # Overview
 
-This repository contains the code to run and reproduce the experiments of the Fed2RC, Fed2RC$^{+}$ and MiniFed2RC algorithms and baselines.
+This repository contains the code to run and reproduce the experiments of the Fed2RC, Fed2RC<sup>+</sup> and MiniFed2RC algorithms and baselines.
 
 Please cite as:
 
