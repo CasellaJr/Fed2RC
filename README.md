@@ -4,13 +4,13 @@
 Bruno Casella, Samuele Fonio, Lorenzo Sciandra, Claudio Gallicchio, Marco Aldinucci, Mirko Polato and Roberto Esposito
 
 [![Conference](https://img.shields.io/badge/ECAI-2025-red)](https://ebooks.iospress.nl/doi/10.3233/FAIA251198)
-[![Conference](https://img.shields.io/badge/ECAI-2025-red)](https://ebooks.iospress.nl/doi/10.3233/FAIA251198)
+[![Conference](https://img.shields.io/badge/DAMI-2026-blue)](TODO)
 
 </div>
 
 # Overview
 
-This repository contains the code to run and reproduce the experiments of the Fed2RC algorithm and baselines.
+This repository contains the code to run and reproduce the experiments of the Fed2RC, Fed2RC$^{+}$ and MiniFed2RC algorithms and baselines.
 
 Please cite as:
 
