@@ -24,7 +24,6 @@ Please cite as:
   year         = {2026},
   url          = {xxx.yyy},
   doi          = {xxx.yyy},
-  tppubtype    = {inproceedings},
 }
 
 @inproceedings{casella25fed2rc,
